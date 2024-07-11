@@ -8,8 +8,9 @@ users = Table(
     Column("username", String(50), nullable=False, unique=True),
     Column("email", String(100), nullable=False, unique=True),
     Column("created_at", TIMESTAMP, server_default="now()"),
-    Column("deleted_at", TIMESTAMP),
-    Column("deleted", Boolean, nullable=True)
+    Column("disabled_at", TIMESTAMP),
+    Column("disabled", Boolean, nullable=True),
+    Column("hashed_password", String, nullable=True)
 )
 favored_cities = Table(
     "favored_cities",
