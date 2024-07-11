@@ -22,7 +22,6 @@ class UserFavoredCityResponse(BaseModel):
         'from_attributes': True
     }
 
-
 class User(BaseModel):
     id: UUID
     username: str = None
@@ -40,7 +39,9 @@ class UserAddFavoriteCity(BaseModel):
     city: str
 
 class FavoriteCities(BaseModel):
+    favored_id: UUID
     city: str
+
 class UserInDB(User):
     hashed_password: str
 

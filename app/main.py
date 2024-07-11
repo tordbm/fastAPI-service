@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, List
+from uuid import UUID
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
@@ -10,7 +11,7 @@ from .database import engine, get_db, database
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 load_dotenv()
 SECRET_KEY = os.getenv('SECRET_KEY')
@@ -107,24 +108,29 @@ async def login_for_access_token(
 async def read_users_me(
     current_user: Annotated[schemas.User, Depends(get_current_active_user)],
 ):
-    return current_user
+    try:
+        return current_user
+    except:
+        raise HTTPException(500)
 
 
 @app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
 async def read_own_cities(
     current_user: Annotated[schemas.User, Depends(get_current_active_user)]
 ):
-    city = models.favored_cities.c.city
-    query = select(city).where(current_user.id == models.favored_cities.c.id)
-    result = await database.fetch_all(query)
-    return result
+    try:
+        query = select(models.favored_cities.c.city, models.favored_cities.c.favored_id).where(current_user.id == models.favored_cities.c.id)
+        result = await database.fetch_all(query)
+        return result
+    except:
+        raise HTTPException(404)
 
 @app.get("/allusers/", response_model=List[schemas.UserResponse])
 async def read_users():
     try:
         query = models.users.select()
-        users_list = await database.fetch_all(query)
-        return [schemas.UserResponse(**user) for user in users_list]
+        result = await database.fetch_all(query)
+        return result
     except:
         raise HTTPException(404)
 
@@ -134,7 +140,7 @@ async def get_user_by_username(username: str):
         query = models.users.select().where(models.users.c.username == username)
         return await database.fetch_one(query)
     except:
-        raise HTTPException(404, "User not found")
+        raise HTTPException(404, detail="User not found")
 
 @app.post("/get_user_by_id/")
 async def get_user_by_id(User: schemas.User):
@@ -156,7 +162,7 @@ async def add_favorite_city(request: schemas.UserAddFavoriteCity,
         return {"favored_id": result.inserted_primary_key[0], "username": current_user.username, "city": request.city}
     except Exception as e:
         await db.rollback()
-        raise HTTPException(400, "Could not add city: " + str(e))
+        raise HTTPException(400, detail="Could not add city: " + str(e))
 
 @app.post("/create_user/")
 async def create_user(request: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
@@ -167,4 +173,20 @@ async def create_user(request: schemas.UserCreate, db: AsyncSession = Depends(ge
         return {"id": result.inserted_primary_key[0], "username": request.username, "email": request.email}
     except Exception as e:
         await db.rollback()
-        raise HTTPException(400, "User already exists: " + str(e))
+        raise HTTPException(400, detail="User already exists: " + str(e))
+
+@app.delete("/delete_favored_city/")
+async def delete_favored_city(favored_id: UUID,
+                              _: Annotated[schemas.User, Depends(get_current_active_user)],
+                              db: AsyncSession = Depends(get_db)
+    ):
+    try:
+        query = delete(models.favored_cities).where(models.favored_cities.c.favored_id == favored_id)
+        result = await db.execute(query)
+        if result.rowcount == 0:
+             raise HTTPException(status_code=404, detail="City not found")
+        await db.commit()
+        return status.HTTP_200_OK
+    except:
+        await db.rollback()
+        raise HTTPException(status_code=404, detail="City not found")
