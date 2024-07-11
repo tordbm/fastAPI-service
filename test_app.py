@@ -2,7 +2,7 @@ import pytest
 import os
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
-from sqlalchemy import UUID, create_engine, select
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.models import users, favored_cities
@@ -15,13 +15,17 @@ TEST_DATABASE_URL = os.getenv('TEST_DATABASE_URL')
 engine = create_engine(TEST_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="function")
 def db():
-    db = SessionLocal()
+    connection = engine.connect()
+    transaction = connection.begin()
+    session = SessionLocal(bind=connection)
+    
     try:
-        yield db
+        yield session
     finally:
-        db.close()
+        transaction.rollback()  # Rollback any changes made during the test
+        connection.close()  # Close the connection
 
 def test_create_user(db):
     client = TestClient(app)
@@ -41,7 +45,6 @@ def test_create_user(db):
     print("Result from database query:", result)
     assert result.username == username
     assert result.email == email
-    db.rollback()
 
 def test_add_favored_city(db):
     client = TestClient(app)
@@ -63,4 +66,3 @@ def test_add_favored_city(db):
     print("Result from database query:", result)
     assert result.id == user_id
     assert result.city == city
-    db.rollback()

@@ -1,4 +1,4 @@
-from sqlalchemy import UUID, Boolean, Table, Column, String, TIMESTAMP, func
+from sqlalchemy import UUID, Boolean, DateTime, Table, Column, String, func
 from .database import metadata
 
 users = Table(
@@ -7,9 +7,10 @@ users = Table(
     Column("id", UUID, primary_key=True, server_default=func.uuid_generate_v4()),
     Column("username", String(50), nullable=False, unique=True),
     Column("email", String(100), nullable=False, unique=True),
-    Column("created_at", TIMESTAMP, server_default="now()"),
-    Column("deleted_at", TIMESTAMP),
-    Column("deleted", Boolean, nullable=True)
+    Column("created_at", DateTime, server_default="now()"),
+    Column("disabled_at", DateTime, nullable=True),
+    Column("disabled", Boolean, nullable=True),
+    Column("hashed_password", String, nullable=True)
 )
 favored_cities = Table(
     "favored_cities",
