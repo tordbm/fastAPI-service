@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 from pydantic import BaseModel
 
@@ -7,7 +8,7 @@ class UserResponse(BaseModel):
     username: str
     email: str
     created_at: datetime
-    disabled_at: datetime = None
+    disabled_at: Optional[datetime]
     disabled: bool
     model_config = {
         'from_attributes': True
@@ -15,7 +16,7 @@ class UserResponse(BaseModel):
 
 class UserFavoredCityResponse(BaseModel):
     favored_id: UUID
-    id: UUID
+    username: str
     city: str
     model_config = {
         'from_attributes': True
@@ -33,11 +34,13 @@ class User(BaseModel):
 class UserCreate(BaseModel):
     username: str
     email: str
+    password: str
 
 class UserAddFavoriteCity(BaseModel):
-    id: UUID
     city: str
 
+class FavoriteCities(BaseModel):
+    city: str
 class UserInDB(User):
     hashed_password: str
 

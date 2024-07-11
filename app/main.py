@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Annotated
+from typing import Annotated, List
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
@@ -10,7 +10,7 @@ from .database import engine, get_db, database
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
-import json
+from sqlalchemy import select
 
 load_dotenv()
 SECRET_KEY = os.getenv('SECRET_KEY')
@@ -68,8 +68,6 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
         token_data = schemas.TokenData(username=username)
     except jwt.InvalidTokenError:
         raise credentials_exception
@@ -112,21 +110,25 @@ async def read_users_me(
     return current_user
 
 
-@app.get("/users/me/items/")
-async def read_own_items(
-    current_user: Annotated[schemas.User, Depends(get_current_active_user)],
+@app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
+async def read_own_cities(
+    current_user: Annotated[schemas.User, Depends(get_current_active_user)]
 ):
-    return [{"item_id": "Foo", "owner": current_user.username}]
+    city = models.favored_cities.c.city
+    query = select(city).where(current_user.id == models.favored_cities.c.id)
+    result = await database.fetch_all(query)
+    return result
 
-@app.get("/allusers/", response_model=[schemas.UserResponse])
+@app.get("/allusers/", response_model=List[schemas.UserResponse])
 async def read_users():
     try:
         query = models.users.select()
-        return await database.fetch_all(query)
+        users_list = await database.fetch_all(query)
+        return [schemas.UserResponse(**user) for user in users_list]
     except:
-        raise HTTPException(500)
+        raise HTTPException(404)
 
-@app.post("/get_user_by_username", response_model=schemas.UserResponse)
+@app.post("/get_user_by_username/", response_model=schemas.UserResponse)
 async def get_user_by_username(username: str):
     try:
         query = models.users.select().where(models.users.c.username == username)
@@ -143,24 +145,26 @@ async def get_user_by_id(User: schemas.User):
         raise HTTPException(500, str(e))
 
 @app.post("/add_favorite_city/", response_model=schemas.UserFavoredCityResponse)
-async def add_favorite_city(request: schemas.UserAddFavoriteCity, db: AsyncSession = Depends(get_db)):
+async def add_favorite_city(request: schemas.UserAddFavoriteCity,
+                            current_user: Annotated[schemas.User, Depends(get_current_active_user)],
+                            db: AsyncSession = Depends(get_db), 
+    ):
     try:
-        query = models.favored_cities.insert().values(id=request.id, city=request.city)
+        query = models.favored_cities.insert().values(id=current_user.id, city=request.city)
         result = await db.execute(query)
         await db.commit()
-        return {"favored_id": result.inserted_primary_key[0], "id": request.id, "city": request.city}
+        return {"favored_id": result.inserted_primary_key[0], "username": current_user.username, "city": request.city}
     except Exception as e:
         await db.rollback()
         raise HTTPException(400, "Could not add city: " + str(e))
 
-@app.post("/create_user/", response_model=schemas.UserResponse)
+@app.post("/create_user/")
 async def create_user(request: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     try:
-        query = models.users.insert().values(username=request.username, email=request.email)
+        query = models.users.insert().values(username=request.username, email=request.email, hashed_password=get_password_hash(request.password))
         result = await db.execute(query)
         await db.commit()
         return {"id": result.inserted_primary_key[0], "username": request.username, "email": request.email}
     except Exception as e:
         await db.rollback()
         raise HTTPException(400, "User already exists: " + str(e))
-   
