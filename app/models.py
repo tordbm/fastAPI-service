@@ -10,7 +10,7 @@ users = Table(
     Column("created_at", DateTime, server_default="now()"),
     Column("disabled_at", DateTime, nullable=True),
     Column("disabled", Boolean, nullable=True),
-    Column("hashed_password", String, nullable=True)
+    Column("hashed_password", String, nullable=False)
 )
 favored_cities = Table(
     "favored_cities",
