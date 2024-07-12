@@ -35,10 +35,8 @@ app = FastAPI(lifespan=lifespan)
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-
 def get_password_hash(password):
     return pwd_context.hash(password)
-
 
 async def authenticate_user(username: str, password: str):
     user = await get_user_by_username(username)
@@ -47,7 +45,6 @@ async def authenticate_user(username: str, password: str):
     if not verify_password(password, user.hashed_password):
         return False
     return user
-
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
@@ -58,7 +55,6 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     credentials_exception = HTTPException(
@@ -77,14 +73,12 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         raise credentials_exception
     return user
 
-
-async def get_current_active_user(
+def get_current_active_user(
     current_user: Annotated[schemas.User, Depends(get_current_user)],
 ):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
-
 
 @app.post("/token")
 async def login_for_access_token(
@@ -103,7 +97,6 @@ async def login_for_access_token(
     )
     return schemas.Token(access_token=access_token, token_type="bearer")
 
-
 @app.get("/users/me/", response_model=schemas.UserResponse)
 async def read_users_me(
     current_user: Annotated[schemas.User, Depends(get_current_active_user)],
@@ -112,7 +105,6 @@ async def read_users_me(
         return current_user
     except:
         raise HTTPException(500)
-
 
 @app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
 async def read_own_cities(
@@ -146,7 +138,7 @@ async def get_user_by_username(username: str):
 async def get_user_by_id(User: schemas.User):
     try:
         query = models.users.select().where(models.users.c.id == User.id)
-        return await database.fetch_all(query)
+        return await database.fetch_one(query)
     except Exception as e:
         raise HTTPException(500, str(e))
 
