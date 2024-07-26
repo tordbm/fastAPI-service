@@ -58,12 +58,9 @@ async def authenticate_user(username: str, password: str):
         return False
     return user
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+def create_access_token(data: dict):
     to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
-    else:
-        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -103,10 +100,7 @@ async def login_for_access_token(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
+    access_token = create_access_token(data={"sub": user.username})
     return schemas.Token(access_token=access_token, token_type="bearer")
 
 @app.get("/users/me/", response_model=schemas.UserResponse)
