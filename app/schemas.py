@@ -51,3 +51,6 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: str | None = None
+
+class UserById(BaseModel):
+    id: UUID

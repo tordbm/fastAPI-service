@@ -12,7 +12,7 @@ from .database import engine, get_db, database
 from contextlib import asynccontextmanager
 import os
 from dotenv import load_dotenv
-from sqlalchemy import select, delete
+from sqlalchemy import insert, select, delete
 
 load_dotenv()
 SECRET_KEY = os.getenv('SECRET_KEY')
@@ -115,28 +115,30 @@ async def read_users_me(
 ):
     try:
         return current_user
-    except:
-        raise HTTPException(500)
+    except Exception as e:
+        raise HTTPException(500, detail=str(e))
 
 @app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
 async def read_own_cities(
-    current_user: Annotated[schemas.User, Depends(get_current_active_user)]
+    current_user: Annotated[schemas.User, Depends(get_current_active_user)],
+    db: AsyncSession = Depends(get_db)
 ):
     try:
         query = select(models.favored_cities.c.city, models.favored_cities.c.favored_id).where(current_user.id == models.favored_cities.c.id)
-        result = await database.fetch_all(query)
+        result = await db.execute(query)
         return result
-    except:
-        raise HTTPException(404)
+    except Exception as e:
+        raise HTTPException(404, detail=str(e))
 
 @app.get("/allusers/", response_model=List[schemas.UserResponse])
-async def read_users():
+async def read_users(
+    db: AsyncSession = Depends(get_db)):
     try:
-        query = models.users.select()
-        result = await database.fetch_all(query)
+        query = select(models.users)
+        result = await db.execute(query)
         return result
-    except:
-        raise HTTPException(404)
+    except Exception as e:
+        raise HTTPException(404, detail=str(e))
 
 @app.post("/get_user_by_username/", response_model=schemas.UserResponse)
 async def get_user_by_username(username: str):
@@ -146,13 +148,13 @@ async def get_user_by_username(username: str):
     except:
         raise HTTPException(404, detail="User not found")
 
-@app.post("/get_user_by_id/")
-async def get_user_by_id(User: schemas.User):
+@app.post("/get_user_by_id/", response_model=schemas.UserResponse)
+async def get_user_by_id(User: schemas.UserById):
     try:
         query = models.users.select().where(models.users.c.id == User.id)
         return await database.fetch_one(query)
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, detail=str(e))
 
 @app.post("/add_favorite_city/", response_model=schemas.UserFavoredCityResponse)
 async def add_favorite_city(request: schemas.UserAddFavoriteCity,
@@ -160,7 +162,7 @@ async def add_favorite_city(request: schemas.UserAddFavoriteCity,
                             db: AsyncSession = Depends(get_db), 
     ):
     try:
-        query = models.favored_cities.insert().values(id=current_user.id, city=request.city)
+        query = insert(models.favored_cities).values(id=current_user.id, city=request.city)
         result = await db.execute(query)
         await db.commit()
         return {"favored_id": result.inserted_primary_key[0], "username": current_user.username, "city": request.city}
@@ -171,7 +173,7 @@ async def add_favorite_city(request: schemas.UserAddFavoriteCity,
 @app.post("/create_user/")
 async def create_user(request: schemas.UserCreate, db: AsyncSession = Depends(get_db)):
     try:
-        query = models.users.insert().values(username=request.username, email=request.email, hashed_password=get_password_hash(request.password))
+        query = insert(models.users).values(username=request.username, email=request.email, hashed_password=get_password_hash(request.password))
         result = await db.execute(query)
         await db.commit()
         return {"id": result.inserted_primary_key[0], "username": request.username, "email": request.email}
@@ -190,7 +192,21 @@ async def delete_favored_city(favored_id: UUID,
         if result.rowcount == 0:
              raise HTTPException(status_code=404, detail="City not found")
         await db.commit()
-        return status.HTTP_200_OK
-    except:
+    except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=404, detail="City not found")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/users/delete_user/")
+async def delete_user(id: UUID,
+                              _: Annotated[schemas.User, Depends(get_current_active_user)],
+                              db: AsyncSession = Depends(get_db)
+    ):
+    try:
+        query = delete(models.users).where(models.users.c.id == id)
+        result = await db.execute(query)
+        if result.rowcount == 0:
+             raise HTTPException(status_code=404, detail="User not found")
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
