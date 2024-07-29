@@ -114,13 +114,11 @@ async def read_users_me(
 
 @app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
 async def read_own_cities(
-    current_user: Annotated[schemas.User, Depends(get_current_active_user)],
-    db: AsyncSession = Depends(get_db)
+    current_user: Annotated[schemas.User, Depends(get_current_active_user)]
 ):
     try:
-        query = select(models.favored_cities.c.city, models.favored_cities.c.favored_id).where(current_user.id == models.favored_cities.c.id)
-        result = await db.execute(query)
-        return result
+        query = models.favored_cities.select().where(current_user.id == models.favored_cities.c.id)
+        return await database.fetch_all(query)
     except Exception as e:
         raise HTTPException(404, detail=str(e))
 
