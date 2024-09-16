@@ -1,30 +1,15 @@
-from datetime import datetime, timedelta, timezone
 from typing import Annotated, List
 from uuid import UUID
 from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from . import models, schemas
-from passlib.context import CryptContext
 from .database import engine, get_db, database
 from contextlib import asynccontextmanager
-import os
-from dotenv import load_dotenv
+from .utils import verify_password, get_password_hash, create_access_token, SECRET_KEY, ALGORITHM, origins, oauth2_scheme
 from sqlalchemy import insert, select, delete
-
-load_dotenv()
-SECRET_KEY = os.getenv('SECRET_KEY')
-ALGORITHM = os.getenv('ALGORITHM')
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv('ACCESS_TOKEN_EXPIRE_MINUTES'))
-origins = [
-    "http://localhost:5173",
-    "https://tordbm.github.io",
-]
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -44,28 +29,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
-
-async def authenticate_user(username: str, password: str):
-    user = await get_user_by_username(username)
+async def authenticate_user(username: str, password: str, db: AsyncSession):
+    user = await get_user_by_username(username, db)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
         return False
     return user
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: AsyncSession = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -77,23 +49,22 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         token_data = schemas.TokenData(username=username)
     except jwt.InvalidTokenError:
         raise credentials_exception
-    user = await get_user_by_username(username=token_data.username)
+    user = await get_user_by_username(username=token_data.username, db=db)
     if user is None:
         raise credentials_exception
     return user
 
-def get_current_active_user(
-    current_user: Annotated[schemas.User, Depends(get_current_user)],
-):
+def get_current_active_user(current_user: Annotated[schemas.User, Depends(get_current_user)]):
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+# Endpoints
 @app.post("/token")
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
-) -> schemas.Token:
-    user = await authenticate_user(form_data.username, form_data.password)
+    db: AsyncSession = Depends(get_db)) -> schemas.Token:
+    user = await authenticate_user(form_data.username, form_data.password, db)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -114,45 +85,47 @@ async def read_users_me(
 
 @app.get("/users/me/cities/", response_model=List[schemas.FavoriteCities])
 async def read_own_cities(
-    current_user: Annotated[schemas.User, Depends(get_current_active_user)]
+    current_user: Annotated[schemas.User, Depends(get_current_active_user)],
+    db: AsyncSession = Depends(get_db)
 ):
-    try:
-        query = models.favored_cities.select().where(current_user.id == models.favored_cities.c.id)
-        return await database.fetch_all(query)
-    except Exception as e:
-        raise HTTPException(404, detail=str(e))
+    query = models.favored_cities.select().where(current_user.id == models.favored_cities.c.id)
+    result = await db.execute(query)
+    cities = result.fetchall()
+    if not cities:
+        raise HTTPException(404, detail="No cities found")
+    return cities
 
 @app.get("/allusers/", response_model=List[schemas.UserResponse])
-async def read_users(
-    db: AsyncSession = Depends(get_db)):
-    try:
-        query = select(models.users)
-        result = await db.execute(query)
-        return result
-    except Exception as e:
-        raise HTTPException(404, detail=str(e))
+async def read_users(db: AsyncSession = Depends(get_db)):
+    query = select(models.users)
+    result = await db.execute(query)
+    users = result.fetchall()
+    if not users:
+        raise HTTPException(404, detail="No users found")
+    return users
 
 @app.post("/get_user_by_username/", response_model=schemas.UserResponse)
-async def get_user_by_username(username: str):
-    try:
-        query = models.users.select().where(models.users.c.username == username)
-        return await database.fetch_one(query)
-    except:
+async def get_user_by_username(username: str, db: AsyncSession = Depends(get_db)):
+    query = models.users.select().where(models.users.c.username == username)
+    result = await db.execute(query)
+    user = result.fetchone()
+    if user is None:
         raise HTTPException(404, detail="User not found")
+    return user
 
 @app.post("/get_user_by_id/", response_model=schemas.UserResponse)
-async def get_user_by_id(User: schemas.UserById):
-    try:
-        query = models.users.select().where(models.users.c.id == User.id)
-        return await database.fetch_one(query)
-    except Exception as e:
-        raise HTTPException(500, detail=str(e))
+async def get_user_by_id(User: schemas.UserById, db: AsyncSession = Depends(get_db)):
+    query = models.users.select().where(models.users.c.id == User.id)
+    result = await db.execute(query)
+    user = result.fetchone()
+    if user is None:
+        raise HTTPException(404, detail="User not found")
+    return user
 
 @app.post("/add_favorite_city/", response_model=schemas.UserFavoredCityResponse)
 async def add_favorite_city(request: schemas.UserAddFavoriteCity,
                             current_user: Annotated[schemas.User, Depends(get_current_active_user)],
-                            db: AsyncSession = Depends(get_db), 
-    ):
+                            db: AsyncSession = Depends(get_db)):
     try:
         query = insert(models.favored_cities).values(id=current_user.id, city=request.city)
         result = await db.execute(query)
